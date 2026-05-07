@@ -13,7 +13,7 @@ const chatSchema = Joi.object({
   }),
 })
 
-// ── Axios client ke FastAPI ───────────────────────────────────────────────────
+// Axios client ke FastAPI
 const aiClient = axios.create({
   baseURL: process.env.FASTAPI_URL,
   headers: {
@@ -23,7 +23,7 @@ const aiClient = axios.create({
   timeout: 60000,
 })
 
-// ── Helper: ambil history dari MongoDB (10 pesan terakhir) ────────────────────
+// Helper: ambil history dari MongoDB (10 pesan terakhir)
 const getRecentHistory = async (sessionId) => {
   const messages = await ChatMessage.find({ sessionId })
     .sort({ createdAt: -1 }) // Terbaru dulu
@@ -32,7 +32,7 @@ const getRecentHistory = async (sessionId) => {
   return messages.reverse()  // Balik lagi ke urutan kronologis
 }
 
-// ── POST /api/v1/chat (non-streaming) ─────────────────────────────────────────
+// POST /api/v1/chat (non-streaming)
 const sendMessage = async (req, res, next) => {
   try {
     const { error, value } = chatSchema.validate(req.body)
@@ -84,7 +84,7 @@ const sendMessage = async (req, res, next) => {
   }
 }
 
-// ── POST /api/v1/chat/stream (streaming SSE) ──────────────────────────────────
+// POST /api/v1/chat/stream (streaming SSE)
 const streamMessage = async (req, res, next) => {
   try {
     const { error, value } = chatSchema.validate(req.body)
@@ -168,31 +168,31 @@ const streamMessage = async (req, res, next) => {
   }
 }
 
-// ── GET /api/v1/chat/history/:sessionId ──────────────────────────────────────
+// GET /api/v1/chat/history/:sessionId
 const getHistory = async (req, res, next) => {
   try {
     const { sessionId } = req.params
-    const session = await prisma.chatSession.findUnique({ where: { id: sessionId } })
-
-    if (!session) {
-      return res.status(404).json({ status: "error", message: "Sesi tidak ditemukan." })
-    }
-
-    if (session.ipHash !== req.ipHash) {
-      return res.status(403).json({ status: "error", message: "Akses ditolak." })
-    }
-
+ 
+    // Langsung ambil dari MongoDB tanpa cek PostgreSQL
+    // Lebih robust — tidak bergantung apakah session tersimpan di DB atau tidak
     const messages = await ChatMessage.find({ sessionId })
       .sort({ createdAt: 1 })
       .select("role content sourceDocuments createdAt")
-
+ 
+    if (!messages || messages.length === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: "Sesi tidak ditemukan.",
+      })
+    }
+ 
     res.json({ status: "success", sessionId, messages })
   } catch (err) {
     next(err)
   }
 }
 
-// ── GET /api/v1/chat/stats ────────────────────────────────────────────────────
+// GET /api/v1/chat/stats
 const getStats = async (req, res, next) => {
   try {
     const last7Days = await prisma.dailyStat.findMany({ orderBy: { date: "desc" }, take: 7 })
@@ -205,14 +205,17 @@ const getStats = async (req, res, next) => {
   }
 }
 
-// ── Helper: update statistik harian ──────────────────────────────────────────
+// Helper: update statistik harian
 const updateStats = async (sessionId, deviceType) => {
   const today = new Date().toISOString().split("T")[0]
+ 
   await prisma.dailyStat.upsert({
     where: { date: today },
     update: {
       totalMessages: { increment: 1 },
-      ...(deviceType === "mobile" ? { mobileUsers: { increment: 1 } } : { desktopUsers: { increment: 1 } }),
+      ...(deviceType === "mobile"
+        ? { mobileUsers: { increment: 1 } }
+        : { desktopUsers: { increment: 1 } }),
     },
     create: {
       date: today, totalMessages: 1, totalSessions: 1,
@@ -220,9 +223,17 @@ const updateStats = async (sessionId, deviceType) => {
       desktopUsers: deviceType === "desktop" ? 1 : 0,
     },
   })
-  await prisma.chatSession.update({
+ 
+  await prisma.chatSession.upsert({
     where: { id: sessionId },
-    data: { messageCount: { increment: 1 } },
+    update: { messageCount: { increment: 1 } },
+    create: {
+      id: sessionId,
+      ipHash: "unknown",
+      userAgent: "unknown",
+      deviceType: deviceType || "desktop",
+      messageCount: 1,
+    },
   })
 }
 

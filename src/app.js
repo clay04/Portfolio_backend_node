@@ -19,7 +19,9 @@ const { errorHandler } = require("./middlewares/error.middleware");
 
 const app = express();
 
-// ── 2. Security & Utility Middlewares ─────────────────────────────────────────
+app.set("trust proxy", 1);
+
+// 2. Security & Utility Middlewares
 app.use(helmet());
 app.use(cors({
   origin: process.env.CLIENT_URL,
@@ -33,7 +35,7 @@ app.use(morgan("combined", {
   stream: { write: (msg) => logger.info(msg.trim()) },
 }));
 
-// ── 3. General Rate Limiter (anti HTTP spam) ──────────────────────────────────
+// 3. General Rate Limiter (anti HTTP spam)
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 menit
   max: 30,
@@ -41,10 +43,10 @@ const generalLimiter = rateLimit({
 });
 app.use("/api", generalLimiter);
 
-// ── 4. Routes ─────────────────────────────────────────────────────────────────
+// 4. Routes
 app.use("/api/v1/chat", chatRoutes);
 
-// ── 5. Health Check ───────────────────────────────────────────────────────────
+// 5. Health Check
 app.get("/health", (req, res) => {
   res.json({
     status: "ok",
@@ -53,15 +55,15 @@ app.get("/health", (req, res) => {
   });
 });
 
-// ── 6. 404 Handler ────────────────────────────────────────────────────────────
+// 6. 404 Handler
 app.use((req, res) => {
   res.status(404).json({ status: "error", message: "Endpoint tidak ditemukan." });
 });
 
-// ── 7. Global Error Handler ───────────────────────────────────────────────────
+// 7. Global Error Handler
 app.use(errorHandler);
 
-// ── 8. Graceful Shutdown ──────────────────────────────────────────────────────
+// 8. Graceful Shutdown
 const shutdown = async (signal) => {
   logger.info(`${signal} diterima. Menutup server...`);
   await prisma.$disconnect();
@@ -71,14 +73,14 @@ const shutdown = async (signal) => {
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT")); // Ctrl+C
+process.on("SIGINT", () => shutdown("SIGINT"));
 
-// ── 9. Start Server ───────────────────────────────────────────────────────────
+// 9. Start Server
 const PORT = process.env.PORT || 5000;
 
 const start = async () => {
-  await connectDatabases();    // Koneksi PostgreSQL & MongoDB
-  await checkFastAPI();        // Cek FastAPI (warn jika tidak jalan)
+  await connectDatabases();
+  await checkFastAPI();
 
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`🚀  Server berjalan di http://localhost:${PORT}`);
